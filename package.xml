@@ -1,0 +1,29 @@
+<package format="2">
+  <name>elevation_offset_based_filter</name>
+  <version>0.1.0</version>
+  <description>
+	The package of the altitude based pose estimation method.
+  </description>
+  <maintainer email="carlos.andre.filho@usp.br">Andre Przewodowski</maintainer>
+  <license>MIT</license>
+  <depend>catkin</depend>
+  <depend>roscpp</depend>
+  <depend>std_msgs</depend>
+  <depend>tf</depend>
+  <build_depend>cv_bridge</build_depend>
+  <build_depend>image_transport</build_depend>
+  <build_depend>message_generation</build_depend>
+  <build_depend>opencv2</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>image_transport</exec_depend>
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>opencv2</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+
+  <build_depend>message_generation</build_depend>
+
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>rospy</exec_depend>
+</package>
