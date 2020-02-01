@@ -1,0 +1,6 @@
+.vscode/
+.script/
+.test/
+__pycache__/
+*.pyc
+bags/
