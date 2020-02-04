@@ -15,10 +15,6 @@ find_package(catkin REQUIRED COMPONENTS
 
 ## catkin specific configuration ##
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES package_name
-#  CATKIN_DEPENDS roscpp rospy std_msgs
-#  DEPENDS system_lib
   CATKIN_DEPENDS
   message_runtime
   cv_bridge 
@@ -29,15 +25,11 @@ catkin_package(
 find_package(OpenCV)
 
 ## Build ##
-## Specify additional locations of header files
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
 )
 
-## Declare a C++ executable, the .cpp is what the executable program need
 add_executable(filter_node source/filter_node.cpp)
-
-## Specify libraries to link a library or executable target against
 target_link_libraries(filter_node ${catkin_LIBRARIES})

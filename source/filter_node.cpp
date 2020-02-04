@@ -143,7 +143,8 @@ public:
         int 
             hz = 300;
         float 
-            sec = 1./(1.0 * hz);
+            sec = 1./(1.0 * hz),
+            resample_period = 1./(1.0 * param_resample_rate_);
         int 
             counter_publish_particles = 0,
             counter_publish_tf = 0,
@@ -158,7 +159,7 @@ public:
             // Resample if not resampled directly from node and if weights were updated
             if(!param_direct_resample_) {
                 float sec_resample = counter_resample * sec;
-                if(sec_resample >= param_resample_rate_ && flag_updated_weights_) {
+                if(sec_resample >= resample_period && flag_updated_weights_) {
                     filter_->resample();
                     flag_updated_weights_ = false;
                     counter_resample = 0;

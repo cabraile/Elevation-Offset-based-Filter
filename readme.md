@@ -1,6 +1,6 @@
 ABOUT
 ==================================
-This repository contains the code for the "Elevation offset-based filter" method for pose estimation. It is was written by Andre Przewodowski, Alberto Hiroshi, Tiago Cesar and Fernando Santos Osorio. The authors are from the Laboratory of Mobile Robotics (LRM, in portuguese) of the University of Sao Paulo (USP).
+This repository contains the code for the eloff (short for "Elevation offset-based filter") method for pose estimation. It is was written by Andre Przewodowski, Alberto Hiroshi, Tiago Cesar and Fernando Santos Osorio. The authors are from the Laboratory of Mobile Robotics (LRM, in portuguese) of the University of Sao Paulo (USP).
 
 ROS
 ==================================
