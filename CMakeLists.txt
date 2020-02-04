@@ -37,7 +37,7 @@ include_directories(
 )
 
 ## Declare a C++ executable, the .cpp is what the executable program need
-add_executable(relative_altitude_filter_node source/relative_altitude_filter_node.cpp)
+add_executable(filter_node source/filter_node.cpp)
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(relative_altitude_filter_node ${catkin_LIBRARIES})
+target_link_libraries(filter_node ${catkin_LIBRARIES})

@@ -9,6 +9,7 @@ The node `filter_node` (package name `elevation_offset_based_filter`) filters th
 ## Parameters
 * `~nparticles` (Default 1000). The number of particles the filter samples.
 * `~direct_resample` (Default `false`). If the method resamples right after updating weights (`true`) or if it waits a fixed period of time (`false`).
+* `~resample_rate` (Default `0.3`). How often the filter resamples particles. The higher the rates are, the more sensitive to noise the filter is; the lower the rates are, the more robust to noise the filter is, but takes longer to converge. Only used when `~direct_resample` is `false`.
 * `~publish_tf` (Default `false`). Whether to publish the `tf` or not.
 * `~frame_id` (Default "base_link"). The frame of the robot.
 * `~sub_odom_topic` (Default "odom"). The topic from which the filter receives the robot offsets.

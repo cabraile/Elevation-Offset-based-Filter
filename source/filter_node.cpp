@@ -52,6 +52,7 @@ private:
     std::map < std::string , std::map<std::string, tf::StampedTransform> > transforms_;
 
     double
+        param_resample_rate_,       // Frequency the filter resamples particles
         stdev_odom_x_,              // The standard deviation on the x axis of each particle during prediction. 
                                     //    Only used when `param_use_message_covariance_` is false.
         stdev_odom_y_,              // The standard deviation on the y axis of each particle during prediction. 
@@ -101,6 +102,7 @@ public:
         ros::param::get               ("~map_path",               map_path);
         ros::param::param<bool>       ("~publish_tf",             param_publish_tf_,      false);
         ros::param::param<bool>       ("~direct_resample",        param_direct_resample_, false); 
+        ros::param::param<double>     ("~resample_rate",          param_resample_rate_, 1.0/3.0); 
         ros::param::param<bool>       ("~use_message_covariance", param_use_message_covariance_,  true); 
         ros::param::param<std::string>("~sub_odom_topic",         sub_odom_topic,         "odom");
         ros::param::param<std::string>("~sub_altitude_topic",     sub_altitude_topic,     "sensor/altitude/data");
@@ -153,10 +155,10 @@ public:
         while(ros::ok()){
             ros::spinOnce();
 
-            // Resample if not resampled directly from node
+            // Resample if not resampled directly from node and if weights were updated
             if(!param_direct_resample_) {
                 float sec_resample = counter_resample * sec;
-                if(sec_resample >= 3.0 && flag_updated_weights_) {
+                if(sec_resample >= param_resample_rate_ && flag_updated_weights_) {
                     filter_->resample();
                     flag_updated_weights_ = false;
                     counter_resample = 0;
