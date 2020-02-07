@@ -7,7 +7,11 @@
 
 #include <tf/tf.h>
 #include <tf/transform_broadcaster.h>
-#include <tf/transform_listener.h>
+//#include <tf/transform_listener.h>
+
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+//#include <tf2/matrix3x3.h>
 
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
@@ -20,8 +24,13 @@ private:
 
     // TF related variables
     // ------------------------------
+    tf2_ros::Buffer 
+        tf_buffer_;
+    tf2_ros::TransformListener 
+        tf_listener_;
 
-    tf::TransformListener tf_listener_;
+    //tf::TransformListener 
+    //    tf_listener_;
 
     std::string 
         frame_id_;
@@ -88,7 +97,7 @@ public:
     // Node
     // ------------------------------------------------------------------------
 
-    FilterNode(ros::NodeHandle & node_handle) {
+    FilterNode(ros::NodeHandle & node_handle) : tf_listener_(tf_buffer_) {
         // Local vars
         std::string 
             map_path, 
@@ -142,52 +151,48 @@ public:
     void spin() {
         int 
             hz = 300;
-        float 
-            sec = 1./(1.0 * hz),
+        float
             resample_period = 1./(1.0 * param_resample_rate_);
-        int 
-            counter_publish_particles = 0,
-            counter_publish_tf = 0,
-            counter_publish_map = 0,
-            counter_resample = 0;
+
+        ros::Time 
+            curr_time = ros::Time::now(),
+            time_last_publish_particles = curr_time,
+            time_last_publish_tf = curr_time,
+            time_last_publish_map = curr_time,
+            time_last_resample = curr_time;
 
         ros::Rate loop_rate(hz);
-
         while(ros::ok()){
             ros::spinOnce();
-
+            curr_time = ros::Time::now();
+            double secs = 0;
             // Resample if not resampled directly from node and if weights were updated
             if(!param_direct_resample_) {
-                float sec_resample = counter_resample * sec;
-                if(sec_resample >= resample_period && flag_updated_weights_) {
+                secs = (curr_time - time_last_resample).toSec();
+                if( secs >= resample_period && flag_updated_weights_) {
                     filter_->resample();
                     flag_updated_weights_ = false;
-                    counter_resample = 0;
+                    time_last_resample = curr_time;
                 }
                 counter_resample++;
             }
 
             // Publish topics
-            float sec_particles = counter_publish_particles * sec;
-            if(sec_particles >= 1.0/60.0 && publisher_particles_.getNumSubscribers() != 0) { 
+            secs = (curr_time - time_last_publish_particles).toSec();
+            if(secs >= 1.0/60.0 && publisher_particles_.getNumSubscribers() != 0) { 
                 this->publishParticles();
-                counter_publish_particles = 0;
+                time_last_publish_particles = curr_time;
             }
-            float sec_tf = counter_publish_tf * sec;
-            if(sec_tf >= 1.0/60.0 && param_publish_tf_ == true) { 
+            secs = (curr_time - time_last_publish_tf).toSec();
+            if(secs >= 1e-2 && param_publish_tf_ == true) { 
                 this->publishTF();
-                counter_publish_tf = 0;
+                time_last_publish_tf = curr_time;
             }
-            float sec_map = counter_publish_map * sec;
-            if(sec_map >= 0.1 && publisher_map_.getNumSubscribers() != 0) { 
+            secs = (curr_time - time_last_publish_map).toSec();
+            if(secs >= 0.1 && publisher_map_.getNumSubscribers() != 0) { 
                 this->publishMap();
-                counter_publish_map = 0;
+                time_last_publish_map = curr_time;
             }
-
-            // Loop ending
-            counter_publish_particles++;
-            counter_publish_tf++;
-            counter_publish_map++;
             loop_rate.sleep();
         }
         return ;
@@ -198,6 +203,37 @@ public:
     // Callbacks
     // ------------------------------------------------------------------------
 
+    inline void getTransformedDelta(
+        const std::string &frame_to,
+        const std::string &frame_from,
+        const nav_msgs::Odometry::ConstPtr & msg,
+        geometry_msgs::Pose & pose_target_frame
+    ) const {
+        geometry_msgs::TransformStamped transform_stamped;
+        transform_stamped = this->tf_buffer_.lookupTransform(
+            frame_to,    // To
+            frame_from,       // From
+            ros::Time(0)        // When
+        );
+        tf2::Quaternion q;
+        tf2::fromMsg(transform_stamped.transform.rotation, q);
+        tf2::Matrix3x3 R(q);
+        tf2::Vector3 Delta_S(
+            msg->pose.pose.position.x, 
+            msg->pose.pose.position.y, 
+            msg->pose.pose.position.z
+        );
+        tf2::Vector3 new_delta = R * Delta_S;
+        pose_target_frame.position.x = new_delta.x();
+        pose_target_frame.position.y = new_delta.y();
+        pose_target_frame.position.z = new_delta.z();
+        pose_target_frame.orientation.x = 0;
+        pose_target_frame.orientation.y = 0;
+        pose_target_frame.orientation.z = 0;
+        pose_target_frame.orientation.w = 1;
+        return ;
+    }
+
     void odomCallback(
         const nav_msgs::Odometry::ConstPtr & msg
     ) {
@@ -206,12 +242,19 @@ public:
 
         // Frame convertion
         geometry_msgs::Pose pose_target_frame; // The pose in the robot's target frame
+        pose_target_frame = msg->pose.pose; /*
         if(frame_id_.compare(msg_frame_id) != 0) {
-            // TODO: Transform frames!
+            geometry_msgs::TransformStamped transformStamped;
+            try{
+                this->getTransformedDelta(this->frame_id_, msg_frame_id, msg, pose_target_frame);
+            }
+            catch (tf2::TransformException &ex) {
+                ROS_WARN("%s",ex.what());
+            }
         }
         else {
             pose_target_frame = msg->pose.pose;
-        }
+        }*/
 
         float Delta_x = pose_target_frame.position.x;
         float Delta_y = pose_target_frame.position.y;
@@ -243,11 +286,12 @@ public:
         std::string msg_frame_id = msg->header.frame_id;
         // Frame convertion
         geometry_msgs::Pose pose_target_frame; // The pose in the robot's target frame
-        if(frame_id_.compare(msg_frame_id) != 0) {
-            // TODO: Transform frames!
+        geometry_msgs::TransformStamped transformStamped;
+        try{
+            this->getTransformedDelta(this->frame_id_, msg_frame_id, msg, pose_target_frame);
         }
-        else {
-            pose_target_frame = msg->pose.pose;
+        catch (tf2::TransformException &ex) {
+            ROS_WARN("%s",ex.what());
         }
         float delta_h = pose_target_frame.position.z;
         float stdev =  (param_use_message_covariance_) ? std::sqrt(msg->pose.covariance[35]) : stdev_meas_altitude_;
@@ -268,11 +312,9 @@ public:
 
         // Frame convertion
         geometry_msgs::Pose pose_target_frame; // The pose in the robot's target frame
+        pose_target_frame = pose_msg;
         if(frame_id_.compare(msg_frame_id) != 0) {
-            // Transform frames!
-        }
-        else {
-            pose_target_frame = pose_msg;
+            ROS_WARN("Imu frame_id is different than %s. We recommend using the imu_transformer_node from ROS for frame convertion.", this->frame_id_.c_str());
         }
 
         tf::Quaternion q(
