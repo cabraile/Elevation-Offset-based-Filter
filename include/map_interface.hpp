@@ -8,12 +8,17 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <array>
 class MapInterface {
 
 private:
+  
+    std::array<float,2>
+        xrange_,    // Minimum and maximum range, respectivelly, on the x-axis
+        yrange_;     // Minimum and maximum range, respectivelly, on the y-axis
 
-    float 
-        *map;   // The array of values that store the map values by index
+    std::vector<float>
+        map_;   // The array of values that store the map values by index
     std::size_t 
         size,   // Map size: must be nrow * ncol
         nrow,   // Number of rows of the map
@@ -22,9 +27,7 @@ private:
         min_val,    // The minimum value the map reaches 
         max_val,    // The maximum value the map reaches
         xdelta,     // Difference between the minimum and maximum x
-        ydelta,     // Difference between the minimum and maximum y
-        xrange[2],  // Minimum and maximum range, respectivelly, on the x-axis
-        yrange[2];  // Minimum and maximum range, respectivelly, on the y-axis
+        ydelta;     // Difference between the minimum and maximum y
 
     /* Given a string and a delimiter, split their characters into a vector of tokens.
      * Used by MapInterface::load().
@@ -90,18 +93,42 @@ public:
      */
     float at(const float & x, const float & y) const;
 
-    float * getRangeX() const;
+    /* Retrieve the range in the x coordinates
+     * Parameters
+     * --------------------
+     * xrange: the reference to the array.
+     */
+    void getRangeX(std::array<float,2> & xrange) const;
 
-    float * getRangeY() const;
+    /* Retrieve the range in the y coordinates
+     * Parameters
+     * --------------------
+     * yrange: the reference to the array.
+     */
+    void getRangeY(std::array<float,2> & yrange) const;
 
+    /* Returns the number of rows of the map.
+     */
     std::size_t getRows() const;
 
+    /* Returns the number of columns of the map.
+     */
     std::size_t getCols() const;
 
+    /* Returns the minimum map value
+     */
     float min() const;
 
+    /* Returns the maximum map value
+     */
     float max() const;
 
+    /* Checks if coordinates are in map range
+     * 
+     * Parameters
+     * ------------------------
+     * x,y: the x and y coordinates
+     */
     bool inRange(const float x, const float y) const;
 
 };
@@ -140,28 +167,30 @@ void MapInterface::load(const std::string & path) {
     // Second line: load 'xmin,xmax'
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
-    this->xrange[0] = std::stof(tokens[0]);
-    this->xrange[1] = std::stof(tokens[1]);
-    this->xdelta = this->xrange[1] - this->xrange[0];
+    this->xrange_[0] = std::stof(tokens[0]);
+    this->xrange_[1] = std::stof(tokens[1]);
+    this->xdelta = this->xrange_[1] - this->xrange_[0];
 
     // Third line: load 'ymin,ymax'
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
-    this->yrange[0] = std::stof(tokens[0]);
-    this->yrange[1] = std::stof(tokens[1]);
-    this->ydelta = this->yrange[1] - this->yrange[0];
+    this->yrange_[0] = std::stof(tokens[0]);
+    this->yrange_[1] = std::stof(tokens[1]);
+    this->ydelta = this->yrange_[1] - this->yrange_[0];
 
     // Fourth line: load data (one line, csv)
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
-    this->map = (float *) malloc(  this->size * sizeof(float) );
+    //this->map = (float *) malloc(  this->size * sizeof(float) );
+    this->map_ = std::vector<float>(this->size);
     this->max_val = std::numeric_limits<float>::min();
     this->min_val = std::numeric_limits<float>::max();
     for(std::size_t idx = 0; idx < this->size; idx++) {
 	    float val = std::stof(tokens[idx]);
         this->max_val = (val > max_val) ? val : max_val;
         this->min_val = (val < min_val) ? val : min_val;
-        this->map[idx] = val;
+        //this->map[idx] = val;
+        this->map_[idx] = val;
     }
 
     // Finish input operation
@@ -186,16 +215,15 @@ std::size_t MapInterface::getIdFromCoordinate(const float & v, const float & v_m
 
 void MapInterface::toGridPosition(const float & x, const float & y, int & row, int & col) const {
     const float 
-        xmin = this->xrange[0],
-        ymin = this->yrange[0];
-    col = getIdFromCoordinate(x,this->xrange[0],this->xrange[1],this->ncol); 
-    //row = getIdFromCoordinate(y,this->yrange[0],this->yrange[1],this->nrow); 
-    row = getIdFromCoordinate(this->yrange[1] - y + ymin, ymin,this->yrange[1],this->nrow); // corrects, since rows go downwards
+        xmin = this->xrange_[0],
+        ymin = this->yrange_[0];
+    col = getIdFromCoordinate(x,this->xrange_[0],this->xrange_[1],this->ncol); 
+    row = getIdFromCoordinate(this->yrange_[1] - y + ymin, ymin,this->yrange_[1],this->nrow); // corrects, since rows go downwards
     return ;
 }
 
 float MapInterface::at(const std::size_t & row, const std::size_t & col) const {
-    float val = this->map[ row * this->ncol + col ];
+    float val = this->map_[ row * this->ncol + col ];
     return val;
 }
 
@@ -207,18 +235,16 @@ float MapInterface::at(const float & x, const float & y) const {
     return this->at((std::size_t) row, (std::size_t) col);
 }
 
-float * MapInterface::getRangeX() const {
-    float * xrange = (float *) malloc (2 * sizeof(float));
-    xrange[0] = this->xrange[0];
-    xrange[1] = this->xrange[1];
-    return xrange;
+void MapInterface::getRangeX(std::array<float,2> & xrange) const {
+    xrange[0] = this->xrange_[0];
+    xrange[1] = this->xrange_[1];
+    return ;
 }
 
-float * MapInterface::getRangeY() const {
-    float * yrange = (float *) malloc (2 * sizeof(float));
-    yrange[0] = this->yrange[0];
-    yrange[1] = this->yrange[1];
-    return yrange;
+void MapInterface::getRangeY(std::array<float,2> & yrange) const {
+    yrange[0] = this->yrange_[0];
+    yrange[1] = this->yrange_[1];
+    return ;
 }
 
 std::size_t MapInterface::getRows() const {
@@ -239,8 +265,8 @@ float MapInterface::max() const {
 
 bool MapInterface::inRange(const float x, const float y) const {
     if ( 
-        (this->xrange[0] <= x && x <=this->xrange[1]) && 
-        (this->yrange[0] <= y && y <=this->yrange[1])
+        (this->xrange_[0] <= x && x <=this->xrange_[1]) && 
+        (this->yrange_[0] <= y && y <=this->yrange_[1])
     ){
         return true;
     }

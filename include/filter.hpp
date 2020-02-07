@@ -98,8 +98,9 @@ public:
         nparticles_ = nparticles;
         particles_ = std::vector<Particle>(nparticles_);
 
-        float * xrange = map_.getRangeX();
-        float * yrange = map_.getRangeY();
+        std::array<float,2> xrange, yrange;
+        this->map_.getRangeX(xrange);
+        this->map_.getRangeY(yrange);
         const double weight = 1.0/(nparticles_);
         
 
