@@ -174,7 +174,6 @@ public:
                     flag_updated_weights_ = false;
                     time_last_resample = curr_time;
                 }
-                counter_resample++;
             }
 
             // Publish topics
@@ -193,6 +192,8 @@ public:
                 this->publishMap();
                 time_last_publish_map = curr_time;
             }
+
+            // Delay
             loop_rate.sleep();
         }
         return ;
