@@ -35,7 +35,3 @@ The node `filter_node` (package name `elevation_offset_based_filter`) filters th
 * `filter/particles`. *Type* `sensor_msgs/PointCloud2`. The particles of the filter.
 * `filter/pose`. *Type* `geometry_msgs/PoseWithCovarianceStamped`. The estimated pose of the robot.
 * `filter/map`. *Type* `sensor_msgs/Image`. The position of the particles in the map.
-
-TODO
-==================================
-- [ ] Implement odometry TF's and coordinate frame change inside the filter node, not assume received by the odometry nodes.
