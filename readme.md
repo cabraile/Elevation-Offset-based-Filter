@@ -14,7 +14,7 @@ The node `filter_node` (package name `elevation_offset_based_filter`) filters th
 * `~frame_id` (Default "base_link"). The frame of the robot.
 * `~sub_odom_topic` (Default "odom"). The topic from which the filter receives the robot offsets.
 * `~sub_imu_topic` (Default "/sensor/imu/data"). The topic from which the filter receives the orientation.
-* `~sub_altitude_topic` (Default "sensor/altitude/data"). The topic that provides altitude offset readings.
+* `~sub_altitude_topic` (Default "sensor/altitude/data"). The topic that provides altitude readings.
 * `~map_path`. The file that contains the elevation map. It must be written as follows:
     * The first line contains `<nrow>,<ncol>`, where `<nrow>` and `<ncol>` are the number of rows and columns of the image;
     * The second line contains the range of the W axis (in UTM), e.g. "212000,232000".
@@ -24,7 +24,7 @@ The node `filter_node` (package name `elevation_offset_based_filter`) filters th
 * `~stdev_odom_x` (Only required if `~use_message_covariance` is `false`): the standard deviation of the odometry in the `x` direction of the robot frame;
 * `~stdev_odom_y` (Only required if `~use_message_covariance` is `false`): the standard deviation of the odometry in the `y` direction of the robot frame;
 * `~stdev_orientation` (Only required if `~use_message_covariance` is `false`): the standard deviation of the imu messages;
-* `~stdev_meas_altitude` (Only required if `~use_message_covariance` is `false`): the standard deviation of the altitude offset measured.
+* `~stdev_meas_altitude` (Only required if `~use_message_covariance` is `false`): the standard deviation of the altitude measured.
 
 ## Subscribed Topics
 * `odom` (Default). *Type* `nav_msgs/Odometry`.
