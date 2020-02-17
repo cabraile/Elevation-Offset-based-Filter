@@ -7,11 +7,9 @@
 
 #include <tf/tf.h>
 #include <tf/transform_broadcaster.h>
-//#include <tf/transform_listener.h>
 
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-//#include <tf2/matrix3x3.h>
 
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
@@ -26,16 +24,24 @@ private:
     // ------------------------------
     tf2_ros::Buffer 
         tf_buffer_;
+    
     tf2_ros::TransformListener 
         tf_listener_;
 
-    //tf::TransformListener 
-    //    tf_listener_;
+    tf2::Quaternion 
+        rotation_;                   // The last orientation received by the imu - already in the frame_id coordinates
+
+    double
+        last_altitude_;                 // The last altitude received - already in the frame_id coordinates
+
+    tf2::Transform
+        tf_base_link_odom_;             // The transform of the base_link relative to the odom frame (arrow points from base_link to odom)
 
     std::string 
-        frame_id_;
+        frame_id_;                      // The working frame - "base_link"
 
     bool 
+        flag_received_odom_,            // Indicates whether the first odometry message was received or not
         param_publish_tf_;
 
     // ------------------------------
@@ -43,6 +49,8 @@ private:
     // Filter related variables
     // ------------------------------
     bool
+        flag_received_imu_,
+        flag_received_altitude_,        // Indicates whether the first altitude message was received (true) or not (false)
         flag_updated_weights_,
         param_direct_resample_,         // If set to true, the particles are resampled right after 
                                         //    each weight update.
@@ -97,7 +105,15 @@ public:
     // Node
     // ------------------------------------------------------------------------
 
-    FilterNode(ros::NodeHandle & node_handle) : tf_listener_(tf_buffer_) {
+    FilterNode(ros::NodeHandle & node_handle) : 
+        last_altitude_(0),
+        flag_received_imu_(false),
+        flag_updated_weights_(false),
+        flag_received_odom_(false),
+        frame_id_("base_link"), 
+        tf_listener_(tf_buffer_) 
+    {
+
         // Local vars
         std::string 
             map_path, 
@@ -107,7 +123,6 @@ public:
 
         // Load parameters
         ros::param::param<int>        ("~nparticles",             nparticles_,            1000);
-        ros::param::param<std::string>("~frame_id",               frame_id_,              "base_link");
         ros::param::get               ("~map_path",               map_path);
         ros::param::param<bool>       ("~publish_tf",             param_publish_tf_,      false);
         ros::param::param<bool>       ("~direct_resample",        param_direct_resample_, false); 
@@ -116,7 +131,6 @@ public:
         ros::param::param<std::string>("~sub_odom_topic",         sub_odom_topic,         "odom");
         ros::param::param<std::string>("~sub_altitude_topic",     sub_altitude_topic,     "sensor/altitude/data");
         ros::param::param<std::string>("~sub_imu_topic",          sub_imu_topic,          "sensor/imu/data");
-
         if(!param_use_message_covariance_) {
             ros::param::get("~stdev_odom_x",        stdev_odom_x_); 
             ros::param::get("~stdev_odom_y",        stdev_odom_y_); 
@@ -129,7 +143,6 @@ public:
         filter_ = new RelativeAltitudeFilter(map_);
         ROS_INFO("[FilterNode] Loaded map.");
         filter_->sampleUniform(nparticles_);
-        flag_updated_weights_ = false;
         ROS_INFO("[FilterNode] Sampled particles.");
 
         // Start publishers
@@ -170,12 +183,11 @@ public:
             if(!param_direct_resample_) {
                 secs = (curr_time - time_last_resample).toSec();
                 if( secs >= resample_period && flag_updated_weights_) {
-                    filter_->resample();
+                    this->resample();
                     flag_updated_weights_ = false;
                     time_last_resample = curr_time;
                 }
             }
-
             // Publish topics
             secs = (curr_time - time_last_publish_particles).toSec();
             if(secs >= 1.0/60.0 && publisher_particles_.getNumSubscribers() != 0) { 
@@ -199,75 +211,95 @@ public:
         return ;
     }
 
+    // Compute the transform from "map" to the working frame
+    inline tf2::Transform getEstimatedTransformFrameRelativeToMap() const {
+        tf2::Transform transform;
+        double 
+            x = 0, 
+            y = 0, 
+            z = 0,
+            yaw = 0,
+            norm_factor = 0;
+            //norm_factor = nparticles_;
+
+        const std::vector<Particle> & particles = filter_->getParticles();
+        for ( const Particle & p : particles ) {
+            x += p.x * p.w;
+            y += p.y * p.w;
+            yaw += p.orientation * p.w;
+            norm_factor += p.w;
+            //x += p.x;
+            //y += p.y;
+            //yaw += p.orientation;
+        }
+        x /= norm_factor;
+        y /= norm_factor;
+        z = map_.at((float)x,(float)y);
+        //yaw /= norm_factor;
+
+        // TODO: Consider computed yaw for rotation -> if no IMU is received this will help
+        transform.setOrigin( tf2::Vector3(x, y, z) );
+        transform.setRotation(rotation_);
+        return transform;
+    }
+
+    inline void resample() {
+        // Resample particles
+        filter_->resample();
+        return ;
+    }
+
     // ------------------------------------------------------------------------
 
     // Callbacks
     // ------------------------------------------------------------------------
 
-    inline void getTransformedDelta(
-        const std::string &frame_to,
-        const std::string &frame_from,
-        const nav_msgs::Odometry::ConstPtr & msg,
-        geometry_msgs::Pose & pose_target_frame
-    ) const {
-        geometry_msgs::TransformStamped transform_stamped;
-        transform_stamped = this->tf_buffer_.lookupTransform(
-            frame_to,    // To
-            frame_from,       // From
-            ros::Time(0)        // When
-        );
-        tf2::Quaternion q;
-        tf2::fromMsg(transform_stamped.transform.rotation, q);
-        tf2::Matrix3x3 R(q);
-        tf2::Vector3 Delta_S(
-            msg->pose.pose.position.x, 
-            msg->pose.pose.position.y, 
-            msg->pose.pose.position.z
-        );
-        tf2::Vector3 new_delta = R * Delta_S;
-        pose_target_frame.position.x = new_delta.x();
-        pose_target_frame.position.y = new_delta.y();
-        pose_target_frame.position.z = new_delta.z();
-        pose_target_frame.orientation.x = 0;
-        pose_target_frame.orientation.y = 0;
-        pose_target_frame.orientation.z = 0;
-        pose_target_frame.orientation.w = 1;
-        return ;
-    }
-
+    //! Predicts the new position of the particles based on the movement w.r.t. to odom
+    //! 
+    //! @param msg: the odometry of frame_id_ ("base_link") w.r.t. to "odom"
+    //! 
     void odomCallback(
         const nav_msgs::Odometry::ConstPtr & msg
     ) {
+        tf2::Vector3 translation_msg(
+            msg->pose.pose.position.x,
+            msg->pose.pose.position.y,
+            msg->pose.pose.position.z
+        );
+        tf2::Quaternion quat_msg(
+            msg->pose.pose.orientation.x,
+            msg->pose.pose.orientation.y,
+            msg->pose.pose.orientation.z,
+            msg->pose.pose.orientation.w
+        );
+        tf2::Transform tf_curr(quat_msg, translation_msg);
 
-        std::string msg_frame_id = msg->header.frame_id;
-
-        // Frame convertion
-        geometry_msgs::Pose pose_target_frame; // The pose in the robot's target frame
-        pose_target_frame = msg->pose.pose; /*
-        if(frame_id_.compare(msg_frame_id) != 0) {
-            geometry_msgs::TransformStamped transformStamped;
-            try{
-                this->getTransformedDelta(this->frame_id_, msg_frame_id, msg, pose_target_frame);
-            }
-            catch (tf2::TransformException &ex) {
-                ROS_WARN("%s",ex.what());
-            }
+        float Delta_x = 0, Delta_y = 0;
+        double Delta_row, Delta_pitch, Delta_yaw;
+        if(flag_received_odom_) {
+            const tf2::Transform & tf_prev = tf_base_link_odom_; // The transform of the base_link relative to the odom frame
+            tf2::Transform tf_relative = tf_prev.inverseTimes(tf_curr); // Since odom retrieves the transform that takes a point from the base_link to the odom frame
+                                                                        //  we want the "arrow" from t_curr to t_prev
+            tf2::Vector3 translation = tf_relative.getOrigin();
+            Delta_x = translation.x();
+            Delta_y = translation.y();
+            tf2::Quaternion q = tf_relative.getRotation();
+            tf2::Matrix3x3 r_matrix(q);
+            r_matrix.getRPY(Delta_row, Delta_pitch, Delta_yaw);
         }
         else {
-            pose_target_frame = msg->pose.pose;
-        }*/
-
-        float Delta_x = pose_target_frame.position.x;
-        float Delta_y = pose_target_frame.position.y;
-        tf::Quaternion q(
-            pose_target_frame.orientation.x,
-            pose_target_frame.orientation.y,
-            pose_target_frame.orientation.z,
-            pose_target_frame.orientation.w
-        );
-        tf::Matrix3x3 r_matrix(q);
-        double Delta_row, Delta_pitch, Delta_yaw;
-        r_matrix.getRPY(Delta_row, Delta_pitch, Delta_yaw);
+            const geometry_msgs::Pose & pose = msg->pose.pose;
+            Delta_x = pose.position.x;
+            Delta_y = pose.position.y;
+            tf2::Quaternion q(
+                pose.orientation.x,
+                pose.orientation.y,
+                pose.orientation.z,
+                pose.orientation.w
+            );
+            tf2::Matrix3x3 r_matrix(q);
+            r_matrix.getRPY(Delta_row, Delta_pitch, Delta_yaw);
+        }
 
         // Predict
         float stdev_x = (param_use_message_covariance_) ? std::sqrt(msg->pose.covariance[0]) : stdev_odom_x_;
@@ -278,28 +310,50 @@ public:
             Delta_x, Delta_y, Delta_yaw, 
             stdev_x, stdev_y, stdev_yaw
         );
+        flag_received_odom_ = true;
+        tf_base_link_odom_ = tf_curr;
         return ;
     }
 
+    //! Receives the altitude offset message (changes of the barometer w.r.t. the map),
+    //! finds the altitude offset on the current working frame w.r.t. the map and increments particles'
+    //! offsets.
     void altitudeCallback(
         const nav_msgs::Odometry::ConstPtr & msg
     ){
-        std::string msg_frame_id = msg->header.frame_id;
-        // Frame convertion
-        geometry_msgs::Pose pose_target_frame; // The pose in the robot's target frame
-        geometry_msgs::TransformStamped transformStamped;
+        double altitude = 0;
         try{
-            this->getTransformedDelta(this->frame_id_, msg_frame_id, msg, pose_target_frame);
+            geometry_msgs::TransformStamped tf_stamped;
+
+            // Where is the altimeter with respect to the map?
+            tf_stamped = this->tf_buffer_.lookupTransform(
+                frame_id_,                  // Target
+                msg->header.frame_id,       // From
+                ros::Time(0)                // When
+            );
+            tf2::Vector3 A_base(
+                tf_stamped.transform.translation.x,
+                tf_stamped.transform.translation.y,
+                tf_stamped.transform.translation.z
+            );
+            tf2::Matrix3x3 R_base_map(rotation_);
+            altitude = msg->pose.pose.position.z - (R_base_map * A_base).z();
         }
         catch (tf2::TransformException &ex) {
             ROS_WARN("%s",ex.what());
+            return ;
         }
-        float delta_h = pose_target_frame.position.z;
-        float stdev =  (param_use_message_covariance_) ? std::sqrt(msg->pose.covariance[35]) : stdev_meas_altitude_;
-
+        if(!flag_received_altitude_) {
+            flag_received_altitude_ = true;
+            last_altitude_ = altitude;
+            return ;
+        }
+        float delta_h = altitude - last_altitude_;
+        float stdev = (param_use_message_covariance_) ? std::sqrt(msg->pose.covariance[35]) : stdev_meas_altitude_;
+        last_altitude_ = altitude;
         flag_updated_weights_ = filter_->addAltitudeOffset(delta_h, stdev);
         if(param_direct_resample_) {
-            filter_->resample();
+            this->resample();
         }
         return ;
     }
@@ -307,33 +361,63 @@ public:
     void imuCallback(
         const sensor_msgs::Imu::ConstPtr & msg
     ) {
-        std::string msg_frame_id = msg->header.frame_id;
-        geometry_msgs::Pose pose_msg;
-        pose_msg.orientation = msg->orientation;
-
         // Frame convertion
-        geometry_msgs::Pose pose_target_frame; // The pose in the robot's target frame
-        pose_target_frame = pose_msg;
-        if(frame_id_.compare(msg_frame_id) != 0) {
-            ROS_WARN("Imu frame_id is different than %s. We recommend using the imu_transformer_node from ROS for frame convertion.", this->frame_id_.c_str());
+        tf2::Quaternion q_base_link_map(
+            msg->orientation.x,
+            msg->orientation.y,
+            msg->orientation.z,
+            msg->orientation.w
+        );
+        tf2::Matrix3x3 R_base_map;
+        if(frame_id_.compare(msg->header.frame_id) != 0) {         
+            try{
+                geometry_msgs::TransformStamped tf_stamped;
+
+                // Where is the base_link with respect to the imu?
+                tf_stamped = this->tf_buffer_.lookupTransform(
+                    msg->header.frame_id,       // Target
+                    frame_id_,                  // From
+                    ros::Time(0)                // When
+                );
+
+                tf2::Quaternion q_base_imu(
+                    tf_stamped.transform.rotation.x,
+                    tf_stamped.transform.rotation.y,
+                    tf_stamped.transform.rotation.z,
+                    tf_stamped.transform.rotation.w
+                );
+                tf2::Quaternion q_imu_map(
+                    msg->orientation.x,
+                    msg->orientation.y,
+                    msg->orientation.z,
+                    msg->orientation.w
+                );
+                tf2::Matrix3x3 
+                    R_base_imu(q_base_imu),
+                    R_imu_map(q_imu_map);
+                R_base_map = R_imu_map * R_base_imu;
+                R_base_map.getRotation(q_base_link_map);
+            }
+            catch (tf2::TransformException &ex) {
+                ROS_WARN("%s",ex.what());
+                return ;
+            }
+        }
+        else {
+            R_base_map.setRotation(q_base_link_map);
         }
 
-        tf::Quaternion q(
-            pose_target_frame.orientation.x,
-            pose_target_frame.orientation.y,
-            pose_target_frame.orientation.z,
-            pose_target_frame.orientation.w
-        );
-        // Get yaw from converted quaternion to RPY
-        tf::Matrix3x3 q_matrix(q);
+        // Get yaw from rotation matrix to RPY
         double roll, pitch, yaw;
-        q_matrix.getRPY(roll, pitch, yaw);
+        R_base_map.getRPY(roll, pitch, yaw);
         yaw = (yaw < 0) ? yaw + 2 * M_PI : yaw;
         yaw = (yaw >= 2 * M_PI) ? yaw - 2 * M_PI : yaw;
 
         // Get deviation
         double stdev = (param_use_message_covariance_) ? std::sqrt(msg->orientation_covariance[8]) : stdev_orientation_; // Yaw standard deviation
         filter_->setOrientation(yaw, stdev);
+        rotation_ = q_base_link_map;
+        flag_received_imu_ = true;
         return ;
     }
 
@@ -416,47 +500,44 @@ public:
         return ;
     }
 
+    static void debug(const tf2::Transform & tf_in) {
+        double x, y, z;
+        const tf2::Vector3 & translation = tf_in.getOrigin();
+        x = translation.x(); y = translation.y(); z = translation.z();
+        const tf2::Quaternion & rotation = tf_in.getRotation();
+        tf2::Matrix3x3 m(rotation);
+        ROS_INFO("[%.3f , %.3f , %.3f , %.3f]",m[0][0], m[0][1], m[0][2], x);
+        ROS_INFO("[%.3f , %.3f , %.3f , %.3f]",m[1][0], m[1][1], m[1][2], y);
+        ROS_INFO("[%.3f , %.3f , %.3f , %.3f]",m[2][0], m[2][1], m[2][2], z);
+        ROS_INFO("[%.3f , %.3f , %.3f , %.3f]",0.0,0.0,0.0,1.0);
+        return ;
+    }
+
     void publishTF() const {
-        static tf::TransformBroadcaster br;
-        tf::Transform transform;
-        double 
-            x = 0, 
-            y = 0, 
-            z = 0,
-            w = 0,
-            yaw = 0,
-            norm_factor = 1.0 / (1.0 * nparticles_);
-        const std::vector<Particle> & particles = filter_->getParticles();
-        for ( const Particle & p : particles ) {
-            x += p.x;
-            y += p.y;
-            yaw += p.orientation;
-            w += p.w;
+        if(!flag_received_odom_ && !flag_received_imu_) {
+            ROS_WARN("Did not receive any odometry and/or imu message");
+            return ;
         }
-        x *= norm_factor;
-        y *= norm_factor;
-        w *= norm_factor;
-        z = map_.at((float)x,(float)y);
-        yaw *= norm_factor;
-
-        transform.setOrigin( tf::Vector3(x, y, z) );
-        tf::Quaternion q;
-        q.setRPY(0, 0, yaw);
-        transform.setRotation(q);
-        br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", frame_id_));
-
-        geometry_msgs::PoseWithCovarianceStamped msg;
-        msg.header.stamp = ros::Time::now();
-        msg.header.frame_id = "map";
-        msg.pose.pose.position.x = x;
-        msg.pose.pose.position.y = y;
-        msg.pose.pose.position.z = z;
-        msg.pose.pose.orientation.x = q.x();
-        msg.pose.pose.orientation.y = q.y();
-        msg.pose.pose.orientation.z = q.z();
-        msg.pose.pose.orientation.w = q.w();
-        publisher_pose_.publish(msg);
-
+        // Compute the transform from the map to the odom frame
+        static tf2_ros::TransformBroadcaster 
+            br;
+        tf2::Transform 
+            tf_base_map  = this->getEstimatedTransformFrameRelativeToMap();         // Transform of base_link relative to the map
+        tf2::Vector3 translation = tf_base_map.getOrigin();
+        const tf2::Quaternion & rotation = tf_base_map.getRotation();
+        geometry_msgs::TransformStamped
+            tf_msg;
+        tf_msg.header.stamp = ros::Time(0);
+        tf_msg.header.frame_id = "map";
+        tf_msg.child_frame_id = "base_link";
+        tf_msg.transform.translation.x = translation.x();
+        tf_msg.transform.translation.y = translation.y();
+        tf_msg.transform.translation.z = translation.z();
+        tf_msg.transform.rotation.x = rotation.x();
+        tf_msg.transform.rotation.y = rotation.y();
+        tf_msg.transform.rotation.z = rotation.z();
+        tf_msg.transform.rotation.w = rotation.w();
+        br.sendTransform(tf_msg);
         return ;
     }
 
