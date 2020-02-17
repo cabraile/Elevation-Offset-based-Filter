@@ -106,6 +106,7 @@ public:
     // ------------------------------------------------------------------------
 
     FilterNode(ros::NodeHandle & node_handle) : 
+        rotation_(0,0,0,1),
         last_altitude_(0),
         flag_received_imu_(false),
         flag_updated_weights_(false),
@@ -218,7 +219,6 @@ public:
             x = 0, 
             y = 0, 
             z = 0,
-            yaw = 0,
             norm_factor = 0;
             //norm_factor = nparticles_;
 
@@ -226,16 +226,11 @@ public:
         for ( const Particle & p : particles ) {
             x += p.x * p.w;
             y += p.y * p.w;
-            yaw += p.orientation * p.w;
             norm_factor += p.w;
-            //x += p.x;
-            //y += p.y;
-            //yaw += p.orientation;
         }
         x /= norm_factor;
         y /= norm_factor;
         z = map_.at((float)x,(float)y);
-        //yaw /= norm_factor;
 
         // TODO: Consider computed yaw for rotation -> if no IMU is received this will help
         transform.setOrigin( tf2::Vector3(x, y, z) );
@@ -261,6 +256,7 @@ public:
     void odomCallback(
         const nav_msgs::Odometry::ConstPtr & msg
     ) {
+        //ROS_INFO("---- STARTED ODOM ----");
         tf2::Vector3 translation_msg(
             msg->pose.pose.position.x,
             msg->pose.pose.position.y,
@@ -312,6 +308,7 @@ public:
         );
         flag_received_odom_ = true;
         tf_base_link_odom_ = tf_curr;
+        //ROS_INFO("---- ENDED ODOM ----");
         return ;
     }
 
@@ -321,6 +318,7 @@ public:
     void altitudeCallback(
         const nav_msgs::Odometry::ConstPtr & msg
     ){
+        //ROS_INFO("---- STARTED ALTITUDE ----");
         double altitude = 0;
         try{
             geometry_msgs::TransformStamped tf_stamped;
@@ -355,6 +353,7 @@ public:
         if(param_direct_resample_) {
             this->resample();
         }
+        //ROS_INFO("---- ENDED ALTITUDE ----");
         return ;
     }
 
