@@ -6,7 +6,7 @@
 
 struct Particle {
 public:
-    float x, y, orientation;
+    double x, y, orientation;
     double w, delta_h, accum_h_stdev;
 
     int prev_row, prev_col;
@@ -24,7 +24,7 @@ public:
         flag_changed_cell(false){ } ;
 
     Particle(
-        const float x, const float y, 
+        const double x, const double y, 
         const float orientation, const float w
     ) : 
         x(x), y(y), 
@@ -98,7 +98,7 @@ public:
         nparticles_ = nparticles;
         particles_ = std::vector<Particle>(nparticles_);
 
-        std::array<float,2> xrange, yrange;
+        std::array<double,2> xrange, yrange;
         this->map_.getRangeX(xrange);
         this->map_.getRangeY(yrange);
         const double weight = 1.0/(nparticles_);
@@ -141,8 +141,8 @@ public:
     // ------------------------------------------------------------------------
 
     void predict (
-        const float delta_x,
-        const float delta_y,
+        const double delta_x,
+        const double delta_y,
         const float delta_orientation,
         const float stdev_x,
         const float stdev_y,
@@ -153,8 +153,8 @@ public:
         // Since there is a risk stdev_{x|y|theta} is zero, set a value to dstr_x,
         // but won't really matter in this case.
         float
-            dstr_x = (stdev_x < 1e-10) ? (std::numeric_limits<float>::max()) : stdev_x,
-            dstr_y = (stdev_y < 1e-10) ? (std::numeric_limits<float>::max()) : stdev_y,
+            dstr_x = (stdev_x < 1e-10) ? (std::numeric_limits<double>::max()) : stdev_x,
+            dstr_y = (stdev_y < 1e-10) ? (std::numeric_limits<double>::max()) : stdev_y,
             dstr_theta = (stdev_orientation < 1e-10) ? (std::numeric_limits<float>::max()) : stdev_orientation;
             
         std::normal_distribution<> 
@@ -164,9 +164,9 @@ public:
 
         // Offset previous position and orientation with the offset given
        for (Particle & p : particles_) {
-            float dev_x = 0.0;
-            float dev_y = 0.0;
-            float dev_theta = 0.0;
+            double dev_x = 0.0;
+            double dev_y = 0.0;
+            double dev_theta = 0.0;
             if(stdev_x != 0.0) { dev_x = dstr_dev_x(generator); }
             if(stdev_y != 0.0) { dev_y = dstr_dev_y(generator); }
             if(stdev_orientation != 0.0) { dev_theta = dstr_dev_theta(generator); }
@@ -178,9 +178,14 @@ public:
 
             // Rotate to the world coordinates: odom is a relation between the previous and the current frame
             // Therefore: P^t = R_{f^{t-1}}^W * delta + P^{t-1}
+            double x_prev = p.x;
+            double y_prev = p.y;
             p.x = p.x + cos(orientation) * (delta_x + dev_x) - sin(orientation) * (delta_y + dev_y);
             p.y = p.y + sin(orientation) * (delta_x + dev_x) + cos(orientation) * (delta_y + dev_y);
-
+            //std::cout << "--------------------------------------------" << std::endl;
+            //std::cout << "Yaw: " << 180 * orientation /M_PI << std::endl;
+            //std::cout << "[ " << cos(orientation) << "," << -sin(orientation) << "] * " << "[" << delta_x << "] + " << "[" << x_prev << "] = [" << p.x-x_prev  << std::endl;
+            //std::cout << "[ " << sin(orientation) << "," << cos(orientation)  << "]   " << "[" << delta_y << "]   " << "[" << y_prev << "]   [" << p.y-y_prev  << std::endl;
             int curr_row, curr_col;
             map_.toGridPosition(p.x, p.y, curr_row, curr_col);
             

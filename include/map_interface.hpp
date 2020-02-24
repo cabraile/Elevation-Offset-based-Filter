@@ -13,7 +13,7 @@ class MapInterface {
 
 private:
   
-    std::array<float,2>
+    std::array<double,2>
         xrange_,    // Minimum and maximum range, respectivelly, on the x-axis
         yrange_;     // Minimum and maximum range, respectivelly, on the y-axis
 
@@ -23,7 +23,7 @@ private:
         size,   // Map size: must be nrow * ncol
         nrow,   // Number of rows of the map
         ncol;   // Number of cols of the map
-    float
+    double
         min_val,    // The minimum value the map reaches 
         max_val,    // The maximum value the map reaches
         xdelta,     // Difference between the minimum and maximum x
@@ -49,7 +49,7 @@ private:
      * v_max: maximum value the point reaches.
      * nb_cells: number of cells in which this coordinate system is divided.
      */
-    static std::size_t getIdFromCoordinate(const float & v, const float & v_min, const float & v_max, const int & nb_cells);
+    static std::size_t getIdFromCoordinate(const double & v, const double & v_min, const double & v_max, const int & nb_cells);
 
 public:
 
@@ -75,7 +75,7 @@ public:
      * row, col: the output, the grid positions given x and y.
      * 
      */
-    void toGridPosition(const float & x, const float & y, int & row, int & col) const;
+    void toGridPosition(const double & x, const double & y, int & row, int & col) const;
 
     /* Retrieve the value of the map cell at row, col.
      *
@@ -91,21 +91,21 @@ public:
      * ---------------------
      * x,y: the coordinates of the point.
      */
-    float at(const float & x, const float & y) const;
+    float at(const double & x, const double & y) const;
 
     /* Retrieve the range in the x coordinates
      * Parameters
      * --------------------
      * xrange: the reference to the array.
      */
-    void getRangeX(std::array<float,2> & xrange) const;
+    void getRangeX(std::array<double,2> & xrange) const;
 
     /* Retrieve the range in the y coordinates
      * Parameters
      * --------------------
      * yrange: the reference to the array.
      */
-    void getRangeY(std::array<float,2> & yrange) const;
+    void getRangeY(std::array<double,2> & yrange) const;
 
     /* Returns the number of rows of the map.
      */
@@ -129,7 +129,7 @@ public:
      * ------------------------
      * x,y: the x and y coordinates
      */
-    bool inRange(const float x, const float y) const;
+    bool inRange(const double x, const double y) const;
 
 };
 
@@ -156,8 +156,12 @@ void MapInterface::load(const std::string & path) {
     std::vector<std::string> tokens;
     std::ifstream map_file;
     map_file.open(path);
+    if(!map_file.is_open()) {
+        throw std::runtime_error("The map file could not be opened.");
+    }
 
     // First line : load 'nrow,ncol'
+    std::cout << "First line" << std::endl;
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
     this->nrow = (std::size_t) std::stoi(tokens[0]);
@@ -165,6 +169,7 @@ void MapInterface::load(const std::string & path) {
     this->size = this->nrow * this->ncol;
     
     // Second line: load 'xmin,xmax'
+    std::cout << "Second line" << std::endl;
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
     this->xrange_[0] = std::stof(tokens[0]);
@@ -172,6 +177,7 @@ void MapInterface::load(const std::string & path) {
     this->xdelta = this->xrange_[1] - this->xrange_[0];
 
     // Third line: load 'ymin,ymax'
+    std::cout << "third line" << std::endl;
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
     this->yrange_[0] = std::stof(tokens[0]);
@@ -179,42 +185,43 @@ void MapInterface::load(const std::string & path) {
     this->ydelta = this->yrange_[1] - this->yrange_[0];
 
     // Fourth line: load data (one line, csv)
+    std::cout << "Fourth line" << std::endl;
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
-    //this->map = (float *) malloc(  this->size * sizeof(float) );
     this->map_ = std::vector<float>(this->size);
     this->max_val = std::numeric_limits<float>::min();
     this->min_val = std::numeric_limits<float>::max();
+    std::cout << tokens.size() << std::endl;
     for(std::size_t idx = 0; idx < this->size; idx++) {
 	    float val = std::stof(tokens[idx]);
         this->max_val = (val > max_val) ? val : max_val;
         this->min_val = (val < min_val) ? val : min_val;
-        //this->map[idx] = val;
         this->map_[idx] = val;
     }
-
+    
+    std::cout << "Close"<< std::endl;
     // Finish input operation
     map_file.close();
     return ;
 }
 
-std::size_t MapInterface::getIdFromCoordinate(const float & v, const float & v_min, const float & v_max, const int & nb_cells) {
-    float Delta_S = (v_max - v_min)/(1.0 * nb_cells);
-    float i = ( (v - v_min)/(v_max-v_min) ) * (nb_cells - 1.0);
+std::size_t MapInterface::getIdFromCoordinate(const double & v, const double & v_min, const double & v_max, const int & nb_cells) {
+    double Delta_S = (v_max - v_min)/(1.0 * nb_cells);
+    double i = ( (v - v_min)/(v_max-v_min) ) * (nb_cells - 1.0);
     std::size_t i_plus = std::ceil(i);
     std::size_t i_minus = std::floor(i);
-    float c_plus = v_min + Delta_S * (i_plus + 0.5);
-    float c_minus = v_min + Delta_S * (i_minus + 0.5);
-    float d_plus = std::abs(v - c_plus);
-    float d_minus = std::abs(v - c_minus);
+    double c_plus = v_min + Delta_S * (i_plus + 0.5);
+    double c_minus = v_min + Delta_S * (i_minus + 0.5);
+    double d_plus = std::abs(v - c_plus);
+    double d_minus = std::abs(v - c_minus);
     if(d_minus <= d_plus) {
         return i_minus;
     }
     return i_plus;
 }
 
-void MapInterface::toGridPosition(const float & x, const float & y, int & row, int & col) const {
-    const float 
+void MapInterface::toGridPosition(const double & x, const double & y, int & row, int & col) const {
+    const double 
         xmin = this->xrange_[0],
         ymin = this->yrange_[0];
     col = getIdFromCoordinate(x,this->xrange_[0],this->xrange_[1],this->ncol); 
@@ -227,7 +234,7 @@ float MapInterface::at(const std::size_t & row, const std::size_t & col) const {
     return val;
 }
 
-float MapInterface::at(const float & x, const float & y) const {
+float MapInterface::at(const double & x, const double & y) const {
     int 
         row, 
         col;
@@ -235,13 +242,13 @@ float MapInterface::at(const float & x, const float & y) const {
     return this->at((std::size_t) row, (std::size_t) col);
 }
 
-void MapInterface::getRangeX(std::array<float,2> & xrange) const {
+void MapInterface::getRangeX(std::array<double,2> & xrange) const {
     xrange[0] = this->xrange_[0];
     xrange[1] = this->xrange_[1];
     return ;
 }
 
-void MapInterface::getRangeY(std::array<float,2> & yrange) const {
+void MapInterface::getRangeY(std::array<double,2> & yrange) const {
     yrange[0] = this->yrange_[0];
     yrange[1] = this->yrange_[1];
     return ;
@@ -263,7 +270,7 @@ float MapInterface::max() const {
     return this->max_val;
 }
 
-bool MapInterface::inRange(const float x, const float y) const {
+bool MapInterface::inRange(const double x, const double y) const {
     if ( 
         (this->xrange_[0] <= x && x <=this->xrange_[1]) && 
         (this->yrange_[0] <= y && y <=this->yrange_[1])

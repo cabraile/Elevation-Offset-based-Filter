@@ -1,9 +1,10 @@
 #include <ros/ros.h>
 #include <nav_msgs/Odometry.h>
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/point_cloud2_iterator.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 
 #include <tf/tf.h>
 #include <tf/transform_broadcaster.h>
@@ -85,11 +86,15 @@ private:
     // ROS
     // ------------------------------
 
+    geometry_msgs::Pose 
+        pose_groundtruth_;
+
     ros::Publisher
         publisher_particles_,       // Publishes a PointCloud2 message of the particles' state.
         publisher_pose_;            // Publiches the Pose of the robot for debugging purposes
         
     ros::Subscriber
+        subscriber_gt_,            // Receives GPS data for comparison purposes
         subscriber_odom_,           // Receives an Odometry message used for filter prediction.
         subscriber_altitude_,       // Receives a PoseWithCovarianceStamped message that contains the altitude 
                                     //    measured.
@@ -110,8 +115,7 @@ public:
         last_altitude_(0),
         flag_received_imu_(false),
         flag_updated_weights_(false),
-        flag_received_odom_(false),
-        frame_id_("base_link"), 
+        flag_received_odom_(false), 
         tf_listener_(tf_buffer_) 
     {
 
@@ -120,18 +124,21 @@ public:
             map_path, 
             sub_odom_topic, 
             sub_altitude_topic,
-            sub_imu_topic;
+            sub_imu_topic,
+            sub_gt_topic;
 
         // Load parameters
         ros::param::param<int>        ("~nparticles",             nparticles_,            1000);
         ros::param::get               ("~map_path",               map_path);
         ros::param::param<bool>       ("~publish_tf",             param_publish_tf_,      false);
         ros::param::param<bool>       ("~direct_resample",        param_direct_resample_, false); 
-        ros::param::param<double>     ("~resample_rate",          param_resample_rate_, 1.0/3.0); 
+        ros::param::param<double>     ("~resample_rate",          param_resample_rate_, 1.0/3.0);
         ros::param::param<bool>       ("~use_message_covariance", param_use_message_covariance_,  true); 
+        ros::param::param<std::string>("~frame_id",               frame_id_,              "base_link");
         ros::param::param<std::string>("~sub_odom_topic",         sub_odom_topic,         "odom");
         ros::param::param<std::string>("~sub_altitude_topic",     sub_altitude_topic,     "sensor/altitude/data");
         ros::param::param<std::string>("~sub_imu_topic",          sub_imu_topic,          "sensor/imu/data");
+        ros::param::param<std::string>("~sub_groundtruth_topic",  sub_gt_topic,  "groundtruth/data");
         if(!param_use_message_covariance_) {
             ros::param::get("~stdev_odom_x",        stdev_odom_x_); 
             ros::param::get("~stdev_odom_y",        stdev_odom_y_); 
@@ -140,7 +147,13 @@ public:
         }
 
         // Start particle filter
-        map_.load(map_path);
+        try {
+            map_.load(map_path);
+        }
+        catch (const std::exception & e){
+            ROS_ERROR("ERROR LOADING MAP: %s", e.what());
+            exit(-1);
+        }
         filter_ = new RelativeAltitudeFilter(map_);
         ROS_INFO("[FilterNode] Loaded map.");
         filter_->sampleUniform(nparticles_);
@@ -157,6 +170,7 @@ public:
         subscriber_odom_        = node_handle.subscribe(sub_odom_topic,      3, &FilterNode::odomCallback,this);  
         subscriber_altitude_    = node_handle.subscribe(sub_altitude_topic,  1, &FilterNode::altitudeCallback,this);
         subscriber_imu_         = node_handle.subscribe(sub_imu_topic,       1, &FilterNode::imuCallback,this);
+        subscriber_gt_          = node_handle.subscribe(sub_gt_topic,        1, &FilterNode::gtCallback,this);
         ROS_INFO("[FilterNode] Assigned subscribers.");
 
         return ;
@@ -219,14 +233,13 @@ public:
             x = 0, 
             y = 0, 
             z = 0,
-            norm_factor = 0;
-            //norm_factor = nparticles_;
+            //norm_factor = 0;
+            norm_factor = nparticles_;
 
         const std::vector<Particle> & particles = filter_->getParticles();
         for ( const Particle & p : particles ) {
-            x += p.x * p.w;
-            y += p.y * p.w;
-            norm_factor += p.w;
+            x += p.x ;
+            y += p.y ;
         }
         x /= norm_factor;
         y /= norm_factor;
@@ -248,6 +261,11 @@ public:
 
     // Callbacks
     // ------------------------------------------------------------------------
+
+    void gtCallback(const geometry_msgs::PoseStamped::ConstPtr & msg) {
+        pose_groundtruth_ = msg->pose;
+        return ;
+    }
 
     //! Predicts the new position of the particles based on the movement w.r.t. to odom
     //! 
@@ -360,6 +378,7 @@ public:
     void imuCallback(
         const sensor_msgs::Imu::ConstPtr & msg
     ) {
+        //ROS_INFO("---- STARTED IMU ----");
         // Frame convertion
         tf2::Quaternion q_base_link_map(
             msg->orientation.x,
@@ -411,12 +430,14 @@ public:
         R_base_map.getRPY(roll, pitch, yaw);
         yaw = (yaw < 0) ? yaw + 2 * M_PI : yaw;
         yaw = (yaw >= 2 * M_PI) ? yaw - 2 * M_PI : yaw;
-
+        //ROS_INFO("----------------");
+        //ROS_INFO("RECEIVED YAW: %f", (180 * yaw/M_PI));
         // Get deviation
         double stdev = (param_use_message_covariance_) ? std::sqrt(msg->orientation_covariance[8]) : stdev_orientation_; // Yaw standard deviation
         filter_->setOrientation(yaw, stdev);
         rotation_ = q_base_link_map;
         flag_received_imu_ = true;
+        //ROS_INFO("---- ENDED IMU ----");
         return ;
     }
 
@@ -463,7 +484,7 @@ public:
 
     void publishMap() const {
         std::size_t 
-            nrows = map_.getRows(), ncols = map_.getCols();
+            nrows = map_.getRows(), ncols = map_.getCols(), radius=4;
         float
             min = map_.min(), max = map_.max(), delta = max-min;
         cv::Mat image(nrows, ncols, CV_8UC3);
@@ -486,12 +507,28 @@ public:
             cv::circle( 
                 image,
                 cv::Point(col, row),
-                10,
+                radius,
                 cv::Scalar( 0, 0, 255 ),
                 -1,
                 8
             );
         }
+        double 
+            x = pose_groundtruth_.position.x,
+            y = pose_groundtruth_.position.y;
+        int
+            row = 0,
+            col = 0;
+        map_.toGridPosition(x,y,row,col);
+        cv::circle( 
+            image,
+            cv::Point(col, row),
+            radius-1,
+            cv::Scalar( 255, 0, 0 ),
+            -1,
+            8
+        );
+            
         cv::resize(image, image, cv::Size(), 255.0/(1.0 * nrows),255.0/(1.0 * ncols));
 
         sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", image).toImageMsg();
@@ -513,10 +550,12 @@ public:
     }
 
     void publishTF() const {
+
         if(!flag_received_odom_ && !flag_received_imu_) {
             ROS_WARN("Did not receive any odometry and/or imu message");
             return ;
         }
+        //ROS_INFO("---- START TF ----");
         // Compute the transform from the map to the odom frame
         static tf2_ros::TransformBroadcaster 
             br;
@@ -528,7 +567,7 @@ public:
             tf_msg;
         tf_msg.header.stamp = ros::Time(0);
         tf_msg.header.frame_id = "map";
-        tf_msg.child_frame_id = "base_link";
+        tf_msg.child_frame_id = frame_id_;
         tf_msg.transform.translation.x = translation.x();
         tf_msg.transform.translation.y = translation.y();
         tf_msg.transform.translation.z = translation.z();
@@ -536,7 +575,9 @@ public:
         tf_msg.transform.rotation.y = rotation.y();
         tf_msg.transform.rotation.z = rotation.z();
         tf_msg.transform.rotation.w = rotation.w();
+        //debug(tf_base_map);
         br.sendTransform(tf_msg);
+        //ROS_INFO("---- ENDED TF ----");
         return ;
     }
 
