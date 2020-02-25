@@ -1,0 +1,48 @@
+<launch>
+    <!-- 
+        Sample launch file. Copy this file to the working package and fill the `arg` tags as required. 
+        We recommend filling the parameters on a separated yaml file and reading with rosparam.
+    -->
+    <!-- Topics -->
+    <arg name="sub_odom_topic"            value="/odom"/>             <!-- nav_msgs/Odometry. The topic that provides the robot odometry.  -->
+    <arg name="sub_altitude_topic"        value="/altimeter/data"/>   <!-- nav_msgs/Odometry. The altitude received. -->
+    <arg name="sub_imu_topic"             value="/imu/data"/>         <!-- sensor_msgs/Imu. Used for orientation correction. -->
+    <arg name="sub_groundtruth_topic"     value="/pose/data"/>        <!-- Not required. Visualization purposes. -->
+
+    <!-- Node parameters -->
+    <arg name="frame_id"               value="base_footprint"/>   <!-- The state of the working frame_id to be estimated                -->
+    <arg name="map_path"               value=""/>                 <!-- Fill this with the path of the map to be used                    -->
+    <arg name="publish_tf"             value="true"/>             <!-- Whether or not the node publishes directly to tf                 -->
+    <arg name="use_message_covariance" value="false"/>            <!-- Whether to trust or not on the covariance provided by the topics -->
+
+    <!-- Filter parameters -->
+    <arg name="navigable_only"  value="true"/>  <!-- Wheter or not particles are only sampled and kept on the navigable area    -->
+    <arg name="nparticles"      value="2000"/>  <!-- Number of particles sampled by the filter                                  -->
+    <arg name="resample_rate"   value="0.5"/>   <!-- Frequency in which the particles are resampled (in Hertz)                  -->
+    <arg name="stdev_odom"      value="5e-2"/>  <!-- Confidence in the estimated odometry (in meters)                           -->
+    <arg name="stdev_imu"       value="5e-2"/>  <!-- Confidence in the estimated orientation (in radians)                       -->
+    <arg name="stdev_altimeter" value="2e-1"/>  <!-- Confidence in the received altitude (in meters)                            -->
+    <arg name="direct_resample" value="false"/> <!-- Whether to resample or not right after updating weights                    -->
+
+    <node name="filter_node" type="filter_node" pkg="elevation_offset_based_filter" output="screen">
+        <!-- Topics -->
+        <param name="sub_odom_topic"            value="$(arg sub_odom_topic)"                />
+        <param name="sub_altitude_topic"        value="$(arg sub_altitude_topic)"            />
+        <param name="sub_imu_topic"             value="$(arg sub_imu_topic)"                 />
+        <param name="sub_groundtruth_topic"     value="$(arg sub_groundtruth_topic)"         />
+        <!-- Node params -->
+        <param name="frame_id"                  value="$(arg frame_id)"                      />
+        <param name="publish_tf"                value="$(arg publish_tf)"                    />
+        <param name="map_path"                  value="$(arg map_path)"                      />
+        <param name="use_message_covariance"    value="$(arg use_message_covariance)"        />
+        <!-- Filter params -->
+        <param name="navigable_only"            value="$(arg navigable_only)"                />
+        <param name="nparticles"                value="$(arg nparticles)"                    />
+        <param name="direct_resample"           value="$(arg direct_resample)"               />
+        <param name="resample_rate"             value="$(arg resample_rate)"    type="double"/>
+        <param name="stdev_odom_x"              value="$(arg stdev_odom)"       type="double"/>
+        <param name="stdev_odom_y"              value="$(arg stdev_odom)"       type="double"/>
+        <param name="stdev_orientation"         value="$(arg stdev_imu)"        type="double"/>
+        <param name="stdev_meas_altitude"       value="$(arg stdev_altimeter)"  type="double"/>
+    </node>
+</launch>

@@ -103,7 +103,6 @@ public:
         this->map_.getRangeY(yrange);
         const double weight = 1.0/(nparticles_);
         
-
         // Init random number generator
         std::mt19937        generator(rand_dev_());
 
@@ -182,10 +181,6 @@ public:
             double y_prev = p.y;
             p.x = p.x + cos(orientation) * (delta_x + dev_x) - sin(orientation) * (delta_y + dev_y);
             p.y = p.y + sin(orientation) * (delta_x + dev_x) + cos(orientation) * (delta_y + dev_y);
-            //std::cout << "--------------------------------------------" << std::endl;
-            //std::cout << "Yaw: " << 180 * orientation /M_PI << std::endl;
-            //std::cout << "[ " << cos(orientation) << "," << -sin(orientation) << "] * " << "[" << delta_x << "] + " << "[" << x_prev << "] = [" << p.x-x_prev  << std::endl;
-            //std::cout << "[ " << sin(orientation) << "," << cos(orientation)  << "]   " << "[" << delta_y << "]   " << "[" << y_prev << "]   [" << p.y-y_prev  << std::endl;
             int curr_row, curr_col;
             map_.toGridPosition(p.x, p.y, curr_row, curr_col);
             

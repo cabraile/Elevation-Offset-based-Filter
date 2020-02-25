@@ -50,6 +50,7 @@ private:
     // Filter related variables
     // ------------------------------
     bool
+        param_navigable_only_,
         flag_received_imu_,
         flag_received_altitude_,        // Indicates whether the first altitude message was received (true) or not (false)
         flag_updated_weights_,
@@ -131,6 +132,7 @@ public:
         ros::param::param<int>        ("~nparticles",             nparticles_,            1000);
         ros::param::get               ("~map_path",               map_path);
         ros::param::param<bool>       ("~publish_tf",             param_publish_tf_,      false);
+        ros::param::param<bool>       ("~navigable_only",         param_navigable_only_,  false);
         ros::param::param<bool>       ("~direct_resample",        param_direct_resample_, false); 
         ros::param::param<double>     ("~resample_rate",          param_resample_rate_, 1.0/3.0);
         ros::param::param<bool>       ("~use_message_covariance", param_use_message_covariance_,  true); 
@@ -233,7 +235,6 @@ public:
             x = 0, 
             y = 0, 
             z = 0,
-            //norm_factor = 0;
             norm_factor = nparticles_;
 
         const std::vector<Particle> & particles = filter_->getParticles();
@@ -274,7 +275,6 @@ public:
     void odomCallback(
         const nav_msgs::Odometry::ConstPtr & msg
     ) {
-        //ROS_INFO("---- STARTED ODOM ----");
         tf2::Vector3 translation_msg(
             msg->pose.pose.position.x,
             msg->pose.pose.position.y,
@@ -326,7 +326,6 @@ public:
         );
         flag_received_odom_ = true;
         tf_base_link_odom_ = tf_curr;
-        //ROS_INFO("---- ENDED ODOM ----");
         return ;
     }
 
@@ -336,7 +335,6 @@ public:
     void altitudeCallback(
         const nav_msgs::Odometry::ConstPtr & msg
     ){
-        //ROS_INFO("---- STARTED ALTITUDE ----");
         double altitude = 0;
         try{
             geometry_msgs::TransformStamped tf_stamped;
@@ -371,14 +369,12 @@ public:
         if(param_direct_resample_) {
             this->resample();
         }
-        //ROS_INFO("---- ENDED ALTITUDE ----");
         return ;
     }
 
     void imuCallback(
         const sensor_msgs::Imu::ConstPtr & msg
     ) {
-        //ROS_INFO("---- STARTED IMU ----");
         // Frame convertion
         tf2::Quaternion q_base_link_map(
             msg->orientation.x,
@@ -430,14 +426,11 @@ public:
         R_base_map.getRPY(roll, pitch, yaw);
         yaw = (yaw < 0) ? yaw + 2 * M_PI : yaw;
         yaw = (yaw >= 2 * M_PI) ? yaw - 2 * M_PI : yaw;
-        //ROS_INFO("----------------");
-        //ROS_INFO("RECEIVED YAW: %f", (180 * yaw/M_PI));
         // Get deviation
         double stdev = (param_use_message_covariance_) ? std::sqrt(msg->orientation_covariance[8]) : stdev_orientation_; // Yaw standard deviation
         filter_->setOrientation(yaw, stdev);
         rotation_ = q_base_link_map;
         flag_received_imu_ = true;
-        //ROS_INFO("---- ENDED IMU ----");
         return ;
     }
 
@@ -555,7 +548,6 @@ public:
             ROS_WARN("Did not receive any odometry and/or imu message");
             return ;
         }
-        //ROS_INFO("---- START TF ----");
         // Compute the transform from the map to the odom frame
         static tf2_ros::TransformBroadcaster 
             br;
@@ -575,9 +567,7 @@ public:
         tf_msg.transform.rotation.y = rotation.y();
         tf_msg.transform.rotation.z = rotation.z();
         tf_msg.transform.rotation.w = rotation.w();
-        //debug(tf_base_map);
         br.sendTransform(tf_msg);
-        //ROS_INFO("---- ENDED TF ----");
         return ;
     }
 
