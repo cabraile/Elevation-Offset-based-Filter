@@ -147,16 +147,16 @@ public:
             ros::param::get("~stdev_orientation",   stdev_orientation_); 
             ros::param::get("~stdev_meas_altitude", stdev_meas_altitude_); 
         }
-
         // Start particle filter
         try {
             map_.load(map_path);
         }
         catch (const std::exception & e){
-            ROS_ERROR("ERROR LOADING MAP: %s", e.what());
+            ROS_ERROR("[FilterNode] ERROR LOADING MAP: %s", e.what());
             exit(-1);
         }
         filter_ = new RelativeAltitudeFilter(map_);
+        filter_->setNavigableOnly(param_navigable_only_);
         ROS_INFO("[FilterNode] Loaded map.");
         filter_->sampleUniform(nparticles_);
         ROS_INFO("[FilterNode] Sampled particles.");
@@ -174,7 +174,6 @@ public:
         subscriber_imu_         = node_handle.subscribe(sub_imu_topic,       1, &FilterNode::imuCallback,this);
         subscriber_gt_          = node_handle.subscribe(sub_gt_topic,        1, &FilterNode::gtCallback,this);
         ROS_INFO("[FilterNode] Assigned subscribers.");
-
         return ;
     }
 
@@ -244,7 +243,7 @@ public:
         }
         x /= norm_factor;
         y /= norm_factor;
-        z = map_.at((float)x,(float)y);
+        z = map_.atXY((float)x,(float)y);
 
         // TODO: Consider computed yaw for rotation -> if no IMU is received this will help
         transform.setOrigin( tf2::Vector3(x, y, z) );
@@ -302,17 +301,9 @@ public:
             r_matrix.getRPY(Delta_row, Delta_pitch, Delta_yaw);
         }
         else {
-            const geometry_msgs::Pose & pose = msg->pose.pose;
-            Delta_x = pose.position.x;
-            Delta_y = pose.position.y;
-            tf2::Quaternion q(
-                pose.orientation.x,
-                pose.orientation.y,
-                pose.orientation.z,
-                pose.orientation.w
-            );
-            tf2::Matrix3x3 r_matrix(q);
-            r_matrix.getRPY(Delta_row, Delta_pitch, Delta_yaw);
+            flag_received_odom_ = true;
+            tf_base_link_odom_ = tf_curr;
+            return ;
         }
 
         // Predict
@@ -324,7 +315,7 @@ public:
             Delta_x, Delta_y, Delta_yaw, 
             stdev_x, stdev_y, stdev_yaw
         );
-        flag_received_odom_ = true;
+        //flag_received_odom_ = true;
         tf_base_link_odom_ = tf_curr;
         return ;
     }
@@ -354,7 +345,7 @@ public:
             altitude = msg->pose.pose.position.z - (R_base_map * A_base).z();
         }
         catch (tf2::TransformException &ex) {
-            ROS_WARN("%s",ex.what());
+            ROS_WARN("[FilterNode] %s",ex.what());
             return ;
         }
         if(!flag_received_altitude_) {
@@ -375,6 +366,10 @@ public:
     void imuCallback(
         const sensor_msgs::Imu::ConstPtr & msg
     ) {
+        // DEBUG
+        /*if(flag_received_imu_) {
+            return ;
+        }*/
         // Frame convertion
         tf2::Quaternion q_base_link_map(
             msg->orientation.x,
@@ -413,7 +408,7 @@ public:
                 R_base_map.getRotation(q_base_link_map);
             }
             catch (tf2::TransformException &ex) {
-                ROS_WARN("%s",ex.what());
+                ROS_WARN("[FilterNode] %s",ex.what());
                 return ;
             }
         }
@@ -462,7 +457,7 @@ public:
         sensor_msgs::PointCloud2Iterator<double> out_w(cloud, "rgba");
 
         for (const Particle & p : particles) {
-            double z = map_.at(p.x, p.y);
+            double z = map_.atXY(p.x, p.y);
             //store xyz and w in point cloud
             *out_x = p.x; *out_y = p.y;  *out_z = z;
             *out_w = p.w;
@@ -477,14 +472,14 @@ public:
 
     void publishMap() const {
         std::size_t 
-            nrows = map_.getRows(), ncols = map_.getCols(), radius=4;
+            nrows = map_.getRows(), ncols = map_.getCols(), gt_radius=9, p_radius=12;
         float
             min = map_.min(), max = map_.max(), delta = max-min;
         cv::Mat image(nrows, ncols, CV_8UC3);
 
         for (std::size_t row = 0; row < nrows; row++) {
             for (std::size_t col = 0; col < ncols; col++) {
-                float z = map_.at(row,col);
+                float z = map_.atRC(row,col);
                 unsigned char color = (unsigned char) ( 255.0 * ((z-min)/(delta))  );
                 image.at< cv::Vec3b >(row,col)[0] = color;
                 image.at< cv::Vec3b >(row,col)[1] = color;
@@ -500,7 +495,7 @@ public:
             cv::circle( 
                 image,
                 cv::Point(col, row),
-                radius,
+                p_radius,
                 cv::Scalar( 0, 0, 255 ),
                 -1,
                 8
@@ -516,7 +511,7 @@ public:
         cv::circle( 
             image,
             cv::Point(col, row),
-            radius-1,
+            gt_radius,
             cv::Scalar( 255, 0, 0 ),
             -1,
             8

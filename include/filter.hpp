@@ -35,12 +35,16 @@ public:
 
 class RelativeAltitudeFilter {
 
-private:
+protected:
     std::random_device  rand_dev_; // Used for random number generation.
 
     std::size_t nparticles_;
     std::vector<Particle> particles_;
     MapInterface map_;
+
+    bool navigable_only_;
+    std::vector< std::array<int, 2> > navigable_cells_; // Yes, I know... it would be more efficient to store the indices
+    double nav_invalid_value_;
 
     static inline double gaussian(const double mean, const double stdev) {
         double exp_factor = - 0.5 * std::pow(mean/(stdev),2.0);
@@ -53,10 +57,26 @@ public:
     // Setup functions
     // ------------------------------------------------------------------------
 
-    RelativeAltitudeFilter( const std::string & map_path ) { map_.load(map_path); }
+    RelativeAltitudeFilter( const std::string & map_path ) : navigable_only_(false) { map_.load(map_path); }
 
-    RelativeAltitudeFilter( const MapInterface & map ) : map_(map) { } ;
+    RelativeAltitudeFilter( const MapInterface & map ) : map_(map), navigable_only_(false) { }
 
+    void setNavigableOnly ( const bool flag, const float nav_invalid_value = 0) { 
+        navigable_only_ = flag;
+        navigable_cells_.clear();
+        nav_invalid_value_ = nav_invalid_value;
+        if(navigable_only_ == true) {
+            for(int row = 0; row < map_.getRows(); row++) {
+                for(int col = 0; col < map_.getCols(); col++) {
+                    if( map_.atRC(row,col) != nav_invalid_value){
+                        std::array<int, 2> cell_pos = {row, col};
+                        navigable_cells_.push_back(cell_pos);
+                    }
+                }
+            }
+        }
+        return ;
+    }
 
     const std::vector<Particle> & getParticles() const { return particles_; }
 
@@ -99,24 +119,38 @@ public:
         particles_ = std::vector<Particle>(nparticles_);
 
         std::array<double,2> xrange, yrange;
-        this->map_.getRangeX(xrange);
-        this->map_.getRangeY(yrange);
+        map_.getRangeX(xrange);
+        map_.getRangeY(yrange);
         const double weight = 1.0/(nparticles_);
         
         // Init random number generator
         std::mt19937        generator(rand_dev_());
-
-        std::uniform_real_distribution<double>  distr_x(xrange[0], xrange[1]);
-        std::uniform_real_distribution<double>  distr_y(yrange[0], yrange[1]);
         std::uniform_real_distribution<double>  distr_orientation(0.0, 1.98 * M_PI);
         
         // Sample points
-        for (Particle & p : particles_) {
-            p.x = distr_x(generator);
-            p.y = distr_y(generator);
-            p.orientation = distr_orientation(generator);
-            p.w = weight;
-            map_.toGridPosition(p.x, p.y, p.curr_row, p.curr_col);
+        if(!navigable_only_) {
+            std::uniform_real_distribution<double>  distr_x(xrange[0], xrange[1]);
+            std::uniform_real_distribution<double>  distr_y(yrange[0], yrange[1]);
+            for (Particle & p : particles_) {
+                p.x = distr_x(generator);
+                p.y = distr_y(generator);
+                p.orientation = distr_orientation(generator);
+                p.w = weight;
+                map_.toGridPosition(p.x, p.y, p.curr_row, p.curr_col);
+            }
+        }
+        else {
+            std::uniform_int_distribution<std::size_t> dstr_ids(0, navigable_cells_.size()-1);
+            for (Particle & p : particles_) {
+                std::size_t idx = dstr_ids(generator);
+                std::array<int, 2> cell_pos = navigable_cells_[idx];
+                int row = cell_pos[0];
+                int col = cell_pos[1];
+                map_.fromGridPosition(row, col, p.x, p.y);
+                p.orientation = distr_orientation(generator);
+                p.w = weight;
+                p.curr_row = row; p.curr_col = col;
+            }
         }
         return ;
     }
@@ -128,7 +162,7 @@ public:
                 "(x=" << p.x << ", y=" << p.y << 
                 ", yaw=" << p.orientation << 
                 ", weight=" << p.w << ")" <<
-                " - altitude: " << map_.at(p.x, p.y) <<
+                " - altitude: " << map_.atXY(p.x, p.y) <<
                 " | delta_h: " << p.delta_h <<
                 " | delta_h_stdev: " << p.accum_h_stdev << "| flag: " << p.flag_changed_cell << std::endl;
         }
@@ -177,8 +211,6 @@ public:
 
             // Rotate to the world coordinates: odom is a relation between the previous and the current frame
             // Therefore: P^t = R_{f^{t-1}}^W * delta + P^{t-1}
-            double x_prev = p.x;
-            double y_prev = p.y;
             p.x = p.x + cos(orientation) * (delta_x + dev_x) - sin(orientation) * (delta_y + dev_y);
             p.y = p.y + sin(orientation) * (delta_x + dev_x) + cos(orientation) * (delta_y + dev_y);
             int curr_row, curr_col;
@@ -189,6 +221,11 @@ public:
                 p.prev_col = prev_col;
                 p.curr_row = curr_row;
                 p.curr_col = curr_col;
+                p.flag_changed_cell = true;
+            }
+
+            if(navigable_only_ && map_.atRC( (std::size_t) curr_row, (std::size_t) curr_col ) == nav_invalid_value_) {
+                p.w = 0;
                 p.flag_changed_cell = true;
             }
 
@@ -226,8 +263,8 @@ public:
             // Only updates if the particle moved on the grid
             if(p.flag_changed_cell) {
                 double  
-                    prev_h = map_.at( (std::size_t) p.prev_row, (std::size_t) p.prev_col),
-                    curr_h = map_.at( (std::size_t) p.curr_row, (std::size_t) p.curr_col),
+                    prev_h = map_.atRC( (std::size_t) p.prev_row, (std::size_t) p.prev_col),
+                    curr_h = map_.atRC( (std::size_t) p.curr_row, (std::size_t) p.curr_col),
                     delta_h = curr_h - prev_h,
                     mean = delta_h - p.delta_h,
                     meas_stdev = p.accum_h_stdev;

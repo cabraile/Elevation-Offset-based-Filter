@@ -20,14 +20,15 @@ private:
     std::vector<float>
         map_;   // The array of values that store the map values by index
     std::size_t 
-        size,   // Map size: must be nrow * ncol
+        size_,   // Map size: must be nrow * ncol
         nrow,   // Number of rows of the map
         ncol;   // Number of cols of the map
     double
         min_val,    // The minimum value the map reaches 
         max_val,    // The maximum value the map reaches
-        xdelta,     // Difference between the minimum and maximum x
-        ydelta;     // Difference between the minimum and maximum y
+        xdelta_,     // Difference between the minimum and maximum x
+        ydelta_;     // Difference between the minimum and maximum y
+
 
     /* Given a string and a delimiter, split their characters into a vector of tokens.
      * Used by MapInterface::load().
@@ -52,6 +53,8 @@ private:
     static std::size_t getIdFromCoordinate(const double & v, const double & v_min, const double & v_max, const int & nb_cells);
 
 public:
+
+    void fromGridPosition(const int & row, const int & col, double & x, double & y) const;
 
     /* Load the map from a ".map" file formatted as follows:
      * -> 1st line: 'nrow,ncol', where nrow,ncol are the number of rows and columns of the map grid
@@ -83,7 +86,7 @@ public:
      * ---------------------
      * row,col: the row and col of the cell.
      */
-    float at(const std::size_t & row, const std::size_t & col) const;
+    float atRC(const std::size_t & row, const std::size_t & col) const;
 
     /* Retrieve the value of the map at coordinates x and y
      *
@@ -91,7 +94,7 @@ public:
      * ---------------------
      * x,y: the coordinates of the point.
      */
-    float at(const double & x, const double & y) const;
+    float atXY(const double & x, const double & y) const;
 
     /* Retrieve the range in the x coordinates
      * Parameters
@@ -131,6 +134,8 @@ public:
      */
     bool inRange(const double x, const double y) const;
 
+    std::size_t size() const;
+
 };
 
 
@@ -161,48 +166,49 @@ void MapInterface::load(const std::string & path) {
     }
 
     // First line : load 'nrow,ncol'
-    std::cout << "First line" << std::endl;
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
     this->nrow = (std::size_t) std::stoi(tokens[0]);
     this->ncol = (std::size_t) std::stoi(tokens[1]);
-    this->size = this->nrow * this->ncol;
+    this->size_ = this->nrow * this->ncol;
     
     // Second line: load 'xmin,xmax'
-    std::cout << "Second line" << std::endl;
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
     this->xrange_[0] = std::stof(tokens[0]);
     this->xrange_[1] = std::stof(tokens[1]);
-    this->xdelta = this->xrange_[1] - this->xrange_[0];
+    this->xdelta_ = this->xrange_[1] - this->xrange_[0];
 
     // Third line: load 'ymin,ymax'
-    std::cout << "third line" << std::endl;
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
     this->yrange_[0] = std::stof(tokens[0]);
     this->yrange_[1] = std::stof(tokens[1]);
-    this->ydelta = this->yrange_[1] - this->yrange_[0];
+    this->ydelta_ = this->yrange_[1] - this->yrange_[0];
 
     // Fourth line: load data (one line, csv)
-    std::cout << "Fourth line" << std::endl;
     std::getline(map_file,temp);
     MapInterface::splitString(temp, tokens, ',');
-    this->map_ = std::vector<float>(this->size);
+    if(this->size_ != tokens.size()) {
+        throw std::runtime_error("Map size is inconsistent to the number of elements.");
+    }
+    this->map_ = std::vector<float>(this->size_);
     this->max_val = std::numeric_limits<float>::min();
     this->min_val = std::numeric_limits<float>::max();
-    std::cout << tokens.size() << std::endl;
-    for(std::size_t idx = 0; idx < this->size; idx++) {
+    for(std::size_t idx = 0; idx < this->size_; idx++) {
 	    float val = std::stof(tokens[idx]);
         this->max_val = (val > max_val) ? val : max_val;
         this->min_val = (val < min_val) ? val : min_val;
         this->map_[idx] = val;
     }
     
-    std::cout << "Close"<< std::endl;
     // Finish input operation
     map_file.close();
     return ;
+}
+
+std::size_t MapInterface::size() const {
+    return size_;
 }
 
 std::size_t MapInterface::getIdFromCoordinate(const double & v, const double & v_min, const double & v_max, const int & nb_cells) {
@@ -220,6 +226,15 @@ std::size_t MapInterface::getIdFromCoordinate(const double & v, const double & v
     return i_plus;
 }
 
+void MapInterface::fromGridPosition(const int & row, const int & col, double & x, double & y) const {
+    double
+        delta_col = xdelta_ / (this->ncol),
+        delta_row = ydelta_ / (this->nrow);
+    x = xrange_[0] + delta_col * (0.5 + col);
+    y = yrange_[1] - delta_row * (0.5 + row);
+    return ;
+}
+
 void MapInterface::toGridPosition(const double & x, const double & y, int & row, int & col) const {
     const double 
         xmin = this->xrange_[0],
@@ -229,17 +244,17 @@ void MapInterface::toGridPosition(const double & x, const double & y, int & row,
     return ;
 }
 
-float MapInterface::at(const std::size_t & row, const std::size_t & col) const {
+float MapInterface::atRC(const std::size_t & row, const std::size_t & col) const {
     float val = this->map_[ row * this->ncol + col ];
     return val;
 }
 
-float MapInterface::at(const double & x, const double & y) const {
+float MapInterface::atXY(const double & x, const double & y) const {
     int 
         row, 
         col;
     this->toGridPosition(x,y,row,col);
-    return this->at((std::size_t) row, (std::size_t) col);
+    return this->atRC((std::size_t) row, (std::size_t) col);
 }
 
 void MapInterface::getRangeX(std::array<double,2> & xrange) const {
