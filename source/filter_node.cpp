@@ -563,6 +563,17 @@ public:
         tf_msg.transform.rotation.z = rotation.z();
         tf_msg.transform.rotation.w = rotation.w();
         br.sendTransform(tf_msg);
+        geometry_msgs::PoseWithCovarianceStamped
+            pose_msg;
+        pose_msg.header = tf_msg.header;
+        pose_msg.pose.pose.position.x = translation.x();
+        pose_msg.pose.pose.position.y = translation.y();
+        pose_msg.pose.pose.position.z = translation.z();
+        pose_msg.pose.pose.orientation.x = rotation.x();
+        pose_msg.pose.pose.orientation.y = rotation.y();
+        pose_msg.pose.pose.orientation.z = rotation.z();
+        pose_msg.pose.pose.orientation.w = rotation.w();
+        publisher_pose_.publish(pose_msg);
         return ;
     }
 
